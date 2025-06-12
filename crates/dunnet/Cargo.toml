@@ -1,0 +1,13 @@
+[package]
+name = "dunnet"
+version = "0.1.0"
+edition = "2024"
+
+default-run = "dunnet"
+
+[dependencies]
+futures = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+
+[[bin]]
+name = "dunnet"
