@@ -2,12 +2,12 @@
 use futures::stream::StreamExt;
 use futures::future::FutureExt;
 use std::sync::Arc;
-use std::sync::atomic::{Ordering};
 use tokio::process::{Command, Child};
 use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt};
 use tokio::task;
 
 mod toggle;
+mod mcp_server;
 
 pub struct Dunnet {
     process: Child,
@@ -51,6 +51,10 @@ impl Dunnet {
             eprintln!("Emacs process terminated unexpectedly: {}", err);
             }
         }
+    }
+
+    pub async fn mcp_server(&mut self) {
+        mcp_server::server_main().await.expect("MCP server failed");
     }
 }
 

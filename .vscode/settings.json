@@ -1,0 +1,11 @@
+{
+    "chat.mcp.serverSampling": {
+        "dunnet/.vscode/mcp.json: dunnet-mcp-0": {
+            "allowedModels": [
+                "github.copilot-chat/claude-3.7-sonnet",
+                "github.copilot-chat/gpt-4.1",
+                "github.copilot-chat/gpt-4o"
+            ]
+        }
+    }
+}

@@ -9,6 +9,13 @@ default-run = "dunnet"
 futures = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tokio-stream = { workspace = true, features = ["io-util"] }
+rust-mcp-sdk = { workspace = true, features = ["server"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
 
 [[bin]]
 name = "dunnet"
+
+[[bin]]
+name = "dunnet-mcp"

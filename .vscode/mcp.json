@@ -1,0 +1,9 @@
+{
+    "servers": {
+        "dunnet-mcp-0": {
+            "type": "stdio",
+            "command": "target/debug/dunnet-mcp",
+            "args": []
+        }
+    }
+}
