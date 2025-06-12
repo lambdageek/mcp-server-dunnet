@@ -1,18 +1,22 @@
 //! A wrapper around Emacs dunnet
-use std::ops::Drop;
+use futures::stream::StreamExt;
+use futures::future::FutureExt;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{Ordering};
 use tokio::process::{Command, Child};
 use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt};
 use tokio::task;
+
+mod toggle;
 
 pub struct Dunnet {
     process: Child,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct SharedState {
-    done: AtomicBool,
+    dunnet_done: toggle::ToggleReceiver,
+    input_done: toggle::ToggleReceiver,
 }
 
 impl Dunnet {
@@ -30,37 +34,14 @@ impl Dunnet {
 
     pub async fn repl(&mut self) {
         let child_out = io::BufReader::new(self.process.stdout.take().unwrap());
+        let (dunnet_done_tx, dunnet_done_rx) = toggle::new_toggle();
+        let (input_done_tx, input_done_rx) = toggle::new_toggle();
         let shared_state = Arc::new(SharedState {
-            done: AtomicBool::new(false),
+            dunnet_done: dunnet_done_rx,
+            input_done: input_done_rx,
         });
-        let shared_state_clone = Arc::clone(&shared_state);
-        task::spawn(async move {
-            let shared_state = &*shared_state_clone;
-            let mut lines = child_out.lines();
-            while let Some(line) = lines.next_line().await.unwrap() {
-                let line = line.strip_prefix(">").unwrap_or(&line).trim();
-                println!("Output: {}", line);
-            }
-            shared_state.done.store(true, Ordering::Release);
-        });
-        let shared_state = &*shared_state;
-        let mut stdin = io::BufReader::new(io::stdin());
-        loop {
-            if shared_state.done.load(Ordering::Acquire) {
-                break;
-            }
-            let mut input = String::new();
-            let len = stdin.read_line(&mut input).await.expect("Failed to read line");
-            self.process.stdin.as_mut().expect("Failed to get stdin")
-                .write_all(input.as_bytes()).await.expect("Failed to write to Emacs stdin");
-            if len == 0 {
-                // EOF reached, exit the loop
-                break;
-            }
-
-        }
-        self.process.stdin.take().expect("Failed to get stdin").shutdown().await.expect("Failed to shutdown Emacs stdin");
-
+        task::spawn(OutputHandler::new(shared_state.clone(), dunnet_done_tx).task(child_out));
+        InputHandler::new(shared_state.clone(), input_done_tx).task(io::BufWriter::new(self.process.stdin.take().unwrap())).await;
         println!("REPL session ended.");
         match self.process.wait().await {
             Ok(status) => {
@@ -70,5 +51,94 @@ impl Dunnet {
             eprintln!("Emacs process terminated unexpectedly: {}", err);
             }
         }
+    }
+}
+
+/// Do something with the output of the Emacs process
+struct OutputHandler {
+    shared_state: Arc<SharedState>,
+    dunnet_done_tx: toggle::ToggleSender,
+}
+
+impl OutputHandler {
+    fn new(shared_state: Arc<SharedState>, dunnet_done_tx: toggle::ToggleSender) -> Self {
+        OutputHandler { shared_state, dunnet_done_tx }
+    }
+
+    async fn task(mut self, child_out: io::BufReader<tokio::process::ChildStdout>) {
+        let mut lines = tokio_stream::wrappers::LinesStream::new(child_out.lines()).fuse();
+        let mut done = false;
+        while !done {
+            let mut input_done_fut = self.shared_state.input_done.wait();
+
+            futures::select! {
+                line_opt = lines.next() => {
+                    match line_opt {
+                        Some(Ok(line)) => {
+                            let line = line.strip_prefix(">").unwrap_or(&line).trim();
+                            println!("Output: {}", line);
+                        },
+                        Some(Err(err)) => {
+                            eprintln!("Error reading line: {}", err);
+                            done = true;
+                        },
+                        None => {
+                            // EOF reached, exit the loop
+                            done = true;
+                        }
+                    }
+                }
+                _ = input_done_fut => { done = true; }
+            }
+        }
+        self.dunnet_done_tx.toggle();
+    }
+}
+
+/// Provide a way to send input to the Emacs process
+struct InputHandler {
+    shared_state: Arc<SharedState>,
+    input_done_tx: toggle::ToggleSender,
+}
+
+impl InputHandler {
+    fn new(shared_state: Arc<SharedState>, input_done_tx: toggle::ToggleSender) -> Self {
+        InputHandler { shared_state, input_done_tx }
+    }
+
+    async fn task(mut self, mut child_in: io::BufWriter<tokio::process::ChildStdin>) {
+        let shared_state = &*self.shared_state;
+        let mut done = false;
+        let mut stdin = io::BufReader::new(tokio::io::stdin());
+        while !done {
+            let mut input = String::new();
+            futures::select! {
+                _ = shared_state.dunnet_done.wait() => {
+                    done = true;
+                }
+                len = stdin.read_line(&mut input).fuse() => {
+                    match len {
+                        Ok(0) => {
+                            // EOF reached, exit the loop
+                            done = true;
+                        }
+                        Ok(_len) => {
+                            // Successfully read input
+                            eprintln!("Input: {}", input.trim());
+                        }
+                        Err(err) => {
+                            eprintln!("Error reading from stdin: {}", err);
+                            done = true;
+                            continue;
+                        }
+                    }
+                    child_in.write_all(input.as_bytes()).await.expect("Failed to write to Emacs stdin");
+                    child_in.flush().await.expect("Failed to flush Emacs stdin");
+                }
+                
+            }
+        }
+        child_in.shutdown().await.expect("Failed to shutdown Emacs stdin");
+        self.input_done_tx.toggle();
     }
 }

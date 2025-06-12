@@ -8,6 +8,7 @@ default-run = "dunnet"
 [dependencies]
 futures = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
+tokio-stream = { workspace = true, features = ["io-util"] }
 
 [[bin]]
 name = "dunnet"
