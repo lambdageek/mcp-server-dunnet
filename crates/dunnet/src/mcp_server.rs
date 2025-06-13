@@ -3,12 +3,12 @@
 mod handler {
     use async_trait::async_trait;
     use rust_mcp_sdk::schema::{
-        schema_utils::CallToolError, CallToolRequest, CallToolResult, ListToolsRequest,
-        ListToolsResult, RpcError,
+        CallToolRequest, CallToolResult, ListToolsRequest, ListToolsResult, RpcError,
+        schema_utils::CallToolError,
     };
-    use rust_mcp_sdk::{mcp_server::ServerHandler, McpServer};
+    use rust_mcp_sdk::{McpServer, mcp_server::ServerHandler};
 
-    use super::tools::GreetingTools;
+    use super::tools::DunnetTools;
 
     // Custom Handler to handle MCP Messages
     pub struct MyServerHandler;
@@ -28,7 +28,7 @@ mod handler {
             Ok(ListToolsResult {
                 meta: None,
                 next_cursor: None,
-                tools: GreetingTools::tools(),
+                tools: DunnetTools::tools(),
             })
         }
 
@@ -38,91 +38,64 @@ mod handler {
             request: CallToolRequest,
             runtime: &dyn McpServer,
         ) -> std::result::Result<CallToolResult, CallToolError> {
-            // Attempt to convert request parameters into GreetingTools enum
-            let tool_params: GreetingTools =
-                GreetingTools::try_from(request.params).map_err(CallToolError::new)?;
+            // Attempt to convert request parameters into DunnetTools enum
+            let tool_params: DunnetTools =
+                DunnetTools::try_from(request.params).map_err(CallToolError::new)?;
 
             // Match the tool variant and execute its corresponding logic
             match tool_params {
-                GreetingTools::SayHelloTool(say_hello_tool) => say_hello_tool.call_tool(),
-                GreetingTools::SayGoodbyeTool(say_goodbye_tool) => say_goodbye_tool.call_tool(),
+                DunnetTools::DunnetWorldTool(dunnet_world_tool) => {
+                    dunnet_world_tool.call_tool().await
+                }
             }
         }
     }
 }
 
 mod tools {
-    use rust_mcp_sdk::schema::{schema_utils::CallToolError, CallToolResult};
+    use rust_mcp_sdk::schema::{CallToolResult, schema_utils::CallToolError};
     use rust_mcp_sdk::{
-        macros::{mcp_tool, JsonSchema},
+        macros::{JsonSchema, mcp_tool},
         tool_box,
     };
 
-    //****************//
-    //  SayHelloTool  //
-    //****************//
+    /// Dunnet world command
+    /// Sends one command to the dunnet world
     #[mcp_tool(
-        name = "say_hello",
-        description = "Accepts a person's name and says a personalized \"Hello\" to that person",
+        name = "dunnet_world_command",
+        description = "Accepts a dunnet game command and sends it to the world.  Returns a description of the world after the command is executed. Read the result carefully, as it may contain important information about the game state. If the command changed the world you may need to use the 'look' command again to see the difference.",
         idempotent_hint = false,
         destructive_hint = false,
-        open_world_hint = false,
+        open_world_hint = true,
         read_only_hint = false
     )]
     #[derive(Debug, ::serde::Deserialize, ::serde::Serialize, JsonSchema)]
-    pub struct SayHelloTool {
-        /// The name of the person to greet with a "Hello".
-        name: String,
+    pub struct DunnetWorldTool {
+        /// The command to send to the dunnet world.
+        command: String,
     }
 
-    impl SayHelloTool {
-        pub fn call_tool(&self) -> Result<CallToolResult, CallToolError> {
-            let hello_message = format!("Hello, {}!", self.name);
-            Ok(CallToolResult::text_content(hello_message, None))
+    impl DunnetWorldTool {
+        pub async fn call_tool(&self) -> Result<CallToolResult, CallToolError> {
+            let response_message = format!("Sending command to dunnet world: {}", self.command);
+            Ok(CallToolResult::text_content(response_message, None))
         }
     }
 
-    //******************//
-    //  SayGoodbyeTool  //
-    //******************//
-    #[mcp_tool(
-        name = "say_goodbye",
-        description = "Accepts a person's name and says a personalized \"Goodbye\" to that person.",
-        idempotent_hint = false,
-        destructive_hint = false,
-        open_world_hint = false,
-        read_only_hint = false
-    )]
-    #[derive(Debug, ::serde::Deserialize, ::serde::Serialize, JsonSchema)]
-    pub struct SayGoodbyeTool {
-        /// The name of the person to say goodbye to.
-        name: String,
-    }
-    impl SayGoodbyeTool {
-        pub fn call_tool(&self) -> Result<CallToolResult, CallToolError> {
-            let hello_message = format!("Goodbye, {}!", self.name);
-            Ok(CallToolResult::text_content(hello_message, None))
-        }
-    }
-
-    //******************//
-    //  GreetingTools  //
-    //******************//
-    // Generates an enum names GreetingTools, with SayHelloTool and SayGoodbyeTool variants
-    tool_box!(GreetingTools, [SayHelloTool, SayGoodbyeTool]);
-
+    // Generates an enum names DunnetTools, with DunnetWorldTool variant
+    tool_box!(DunnetTools, [DunnetWorldTool]);
 }
 
 use handler::MyServerHandler;
 use rust_mcp_sdk::schema::{
-    Implementation, InitializeResult, ServerCapabilities, ServerCapabilitiesTools,
-    LATEST_PROTOCOL_VERSION,
+    Implementation, InitializeResult, LATEST_PROTOCOL_VERSION, ServerCapabilities,
+    ServerCapabilitiesTools,
 };
 
 use rust_mcp_sdk::{
-    error::SdkResult,
-    mcp_server::{server_runtime, ServerRuntime},
     McpServer, StdioTransport, TransportOptions,
+    error::SdkResult,
+    mcp_server::{ServerRuntime, server_runtime},
 };
 
 pub async fn server_main() -> SdkResult<()> {
@@ -130,7 +103,7 @@ pub async fn server_main() -> SdkResult<()> {
     let server_details = InitializeResult {
         // server name and version
         server_info: Implementation {
-            name: "Hello World MCP Server".to_string(),
+            name: "Dunnet MCP Server".to_string(),
             version: "0.1.0".to_string(),
         },
         capabilities: ServerCapabilities {

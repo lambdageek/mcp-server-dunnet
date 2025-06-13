@@ -6,7 +6,8 @@ We use Rust to implement the server
 
 # To play the game
 
-Use the `#dunnet-mcp-0` Model Context Protocol server to play the game.
+Use the `#dunnet-mcp-0` Model Context Protocol server to play the game. Use the "dunnet-command" tool to send one command at a time to the game.
+Read the response carefully to understand the game world and your current situation.
 You are an adventurer in a text-based world. You can explore, interact with objects, and solve puzzles.
 Send commands to the server to perform actions in the game world.
 Some commands you can use:

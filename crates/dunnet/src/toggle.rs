@@ -1,8 +1,10 @@
 //! Implements a Toggle type which is a single source multiple consumer 1-bit one-shot channel.
 //! The Toggle can be signaled by the owner to inform all the consumers that a change has occurred.
 
-use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
-use futures::FutureExt;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 
 #[derive(Debug)]
 struct ToggleState {
@@ -14,7 +16,6 @@ pub struct ToggleSender {
     state: Arc<ToggleState>,
 }
 
-
 #[derive(Debug, Clone)]
 pub struct ToggleReceiver {
     state: Arc<ToggleState>,
@@ -25,7 +26,9 @@ pub fn new_toggle() -> (ToggleSender, ToggleReceiver) {
         toggled: AtomicBool::new(false),
     });
     (
-        ToggleSender { state: state.clone() },
+        ToggleSender {
+            state: state.clone(),
+        },
         ToggleReceiver { state },
     )
 }
@@ -44,34 +47,38 @@ impl ToggleReceiver {
     }
 
     pub fn wait(&self) -> ToggleWaiter {
-        if (self.is_toggled()) {
-            ToggleWaiter::Done
+        if self.is_toggled() {
+            ToggleWaiter(ToggleWaitState::Done)
         } else {
-            ToggleWaiter::Waiting {
+            ToggleWaiter(ToggleWaitState::Waiting {
                 state: self.state.clone(),
-            }
+            })
         }
     }
 }
 
 #[derive(Debug)]
-pub enum ToggleWaiter {
+pub struct ToggleWaiter(ToggleWaitState);
+
+#[derive(Debug)]
+enum ToggleWaitState {
     Done,
-    Waiting {
-        state: Arc<ToggleState>,
-    },
+    Waiting { state: Arc<ToggleState> },
 }
 
 impl std::future::Future for ToggleWaiter {
     type Output = ();
 
-    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context) -> std::task::Poll<Self::Output> {
+    fn poll(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context,
+    ) -> std::task::Poll<Self::Output> {
         let self_mut = self.get_mut();
-        match self_mut {
-            ToggleWaiter::Done => std::task::Poll::Ready(()),
-            ToggleWaiter::Waiting { state } => {
+        match &self_mut.0 {
+            ToggleWaitState::Done => std::task::Poll::Ready(()),
+            ToggleWaitState::Waiting { state } => {
                 if state.toggled.load(Ordering::SeqCst) {
-                    *self_mut = ToggleWaiter::Done;
+                    *self_mut = ToggleWaiter(ToggleWaitState::Done);
                     std::task::Poll::Ready(())
                 } else {
                     cx.waker().clone().wake();
@@ -84,6 +91,6 @@ impl std::future::Future for ToggleWaiter {
 
 impl futures::future::FusedFuture for ToggleWaiter {
     fn is_terminated(&self) -> bool {
-        matches!(self, ToggleWaiter::Done)
+        matches!(self, ToggleWaiter(ToggleWaitState::Done))
     }
 }
