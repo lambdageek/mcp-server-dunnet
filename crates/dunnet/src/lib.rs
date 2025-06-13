@@ -32,6 +32,11 @@ pub enum DunnetResponse {
 
 #[derive(Debug)]
 pub struct DunnetRepl {
+    inner: futures::lock::Mutex<DunnetReplInner>,
+}
+
+#[derive(Debug)]
+struct DunnetReplInner {
     /// An event that indicates when we're done sending input to the Emacs process
     input_done_tx: toggle::ToggleSender,
     // a writer for sending input to the Emacs process
@@ -59,7 +64,7 @@ impl Dunnet {
 
     pub async fn play_stdio(self) {
         let mut stdin = io::BufReader::new(io::stdin());
-        let mut repl = self.repl();
+        let repl = self.repl();
         let mut response: DunnetResponse = repl.game_start().await;
         loop {
             match response {
@@ -86,8 +91,9 @@ impl Dunnet {
         }
     }
 
-    pub async fn mcp_server(&mut self) {
-        mcp_server::server_main().await.expect("MCP server failed");
+    pub async fn mcp_server(self) {
+        let repl = self.repl();
+        mcp_server::server_main(mcp_server::DunnetHandler::new(repl)).await.expect("MCP server failed");
     }
 }
 
@@ -98,9 +104,11 @@ impl DunnetRepl {
         let (responses_tx, responses_rx) = futures::channel::mpsc::channel(100);
 
         let repl = DunnetRepl {
-            input_done_tx,
-            child_in: io::BufWriter::new(process.stdin.take().unwrap()),
-            response_rx: responses_rx,
+            inner: futures::lock::Mutex::new(DunnetReplInner {
+                input_done_tx,
+                child_in: io::BufWriter::new(process.stdin.take().unwrap()),
+                response_rx: responses_rx,
+            }),
         };
         // Spawn a task that collects output from the Emacs process and puts it into the response channel
         task::spawn(OutputHandler::new(input_done_rx, responses_tx).task(child_out));
@@ -113,32 +121,32 @@ impl DunnetRepl {
         repl
     }
 
-    async fn response(&mut self) -> DunnetResponse {
-        self.response_rx
+    async fn response(&self) -> DunnetResponse {
+        self.inner.lock().await.response_rx
             .next()
             .await
             .unwrap_or(DunnetResponse::Done(Vec::new()))
     }
 
     /// Wait for the initial game start response (and prompt)
-    pub async fn game_start(&mut self) -> DunnetResponse {
+    pub async fn game_start(&self) -> DunnetResponse {
         self.response().await
     }
 
-    pub async fn quit(&mut self) -> DunnetResponse {
-        self.input_done_tx.toggle();
+    pub async fn quit(&self) -> DunnetResponse {
+        self.inner.lock().await.input_done_tx.toggle();
         self.response().await
     }
 
-    pub async fn interact(&mut self, mut input: String) -> DunnetResponse {
+    pub async fn interact(&self, mut input: String) -> DunnetResponse {
         if !input.ends_with("\n") {
             input.push('\n');
         }
-        self.child_in
+        self.inner.lock().await.child_in
             .write_all(input.as_bytes())
             .await
             .expect("Failed to write to Emacs stdin");
-        self.child_in
+        self.inner.lock().await.child_in
             .flush()
             .await
             .expect("Failed to flush Emacs stdin");
