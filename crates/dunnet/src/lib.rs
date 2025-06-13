@@ -180,6 +180,11 @@ impl OutputHandler {
             let mut bytes: Vec<u8> = Vec::new();
 
             let flush_accumulated_output = futures::select! {
+                // TODO: this doesn't really work for dunnet, since it has multiple different kinds of prompts
+                // like ">", "$", "login:", "password:", etc.
+                // What we should do instead is read everything available until some kind of timeout (0.2s?)
+                // and just send back everything we have accumulated so far.
+                // Alternatively, maybe I should just hack dunnet itself to send some kind of input sigil
                 n_bytes = child_out.read_until(b'>', &mut bytes).fuse() => {
                     match n_bytes {
                         Ok(0) => {
