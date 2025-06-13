@@ -1,4 +1,4 @@
-use rust_mcp_sdk::schema::{CallToolResult, schema_utils::CallToolError};
+use rust_mcp_sdk::schema::{self, CallToolResult, schema_utils::CallToolError};
 use rust_mcp_sdk::{
     macros::{JsonSchema, mcp_tool},
     tool_box,
@@ -17,12 +17,25 @@ use crate::DunnetRepl;
     read_only_hint = false
 )]
 #[derive(Debug, ::serde::Deserialize, ::serde::Serialize, JsonSchema)]
-pub struct DunnetWorldTool {
+pub struct DunnetWorldCommand {
     /// The command to send to the dunnet world.
     command: String,
 }
 
-impl DunnetWorldTool {
+/// Dunnet start game command
+/// Sends a command to the dunnet world and returns the result.
+#[mcp_tool(
+    name = "dunnet_start_game",
+    description = "Starts a new game of Dunnet. Run this command exactly once before running any other dunnet_world_command.",
+    idempotent_hint = false,
+    destructive_hint = false,
+    open_world_hint = true,
+    read_only_hint = false
+)]
+#[derive(Debug, ::serde::Deserialize, ::serde::Serialize, JsonSchema)]
+pub struct DunnetStartGameCommand {}
+
+impl DunnetWorldCommand {
     pub async fn call_tool(&self, repl: &DunnetRepl) -> Result<CallToolResult, CallToolError> {
         let response = repl.interact(self.command.clone())
             .await;
@@ -30,9 +43,36 @@ impl DunnetWorldTool {
             crate::DunnetResponse::Done(lines) => lines.join("\n") + "\nThe game has ended. You can not send any more commands.",
             crate::DunnetResponse::Output(lines) => lines.join("\n") + "\nWhat is your next command?",
         };
-        Ok(CallToolResult::text_content(response_message, None))
+        let text_response = schema::TextContent::new(response_message, Some(schema::Annotations {
+            audience: vec![schema::Role::User, schema::Role::Assistant],
+            priority: None,
+        }));
+        Ok(CallToolResult {
+            content: vec![text_response.into()],
+            is_error: None,
+            meta: None,
+        })
+    }
+}
+
+impl DunnetStartGameCommand {
+    pub async fn call_tool(&self, repl: &DunnetRepl) -> Result<CallToolResult, CallToolError> {
+        let response = repl.game_start().await;
+        let response_message = match response {
+            crate::DunnetResponse::Done(lines) => lines.join("\n") + "\nThe game has ended. You can not send any more commands.",
+            crate::DunnetResponse::Output(lines) => lines.join("\n") + "\nWhat is your next command?",
+        };
+        let text_response = schema::TextContent::new(response_message, Some(schema::Annotations {
+            audience: vec![schema::Role::User, schema::Role::Assistant],
+            priority: None,
+        }));
+        Ok(CallToolResult {
+            content: vec![text_response.into()],
+            is_error: None,
+            meta: None,
+        })
     }
 }
 
 // Generates an enum names DunnetTools, with DunnetWorldTool variant
-tool_box!(DunnetTools, [DunnetWorldTool]);
+tool_box!(DunnetTools, [DunnetWorldCommand, DunnetStartGameCommand]);

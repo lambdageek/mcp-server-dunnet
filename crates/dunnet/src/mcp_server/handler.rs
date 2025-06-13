@@ -51,8 +51,11 @@ impl ServerHandler for DunnetHandler {
 
         // Match the tool variant and execute its corresponding logic
         match tool_params {
-            DunnetTools::DunnetWorldTool(dunnet_world_tool) => {
-                dunnet_world_tool.call_tool(&self.repl).await
+            DunnetTools::DunnetWorldCommand(dunnet_world_command) => {
+                dunnet_world_command.call_tool(&self.repl).await
+            }
+            DunnetTools::DunnetStartGameCommand(dunnet_start_game_command) => {
+                dunnet_start_game_command.call_tool(&self.repl).await
             }
         }
     }
