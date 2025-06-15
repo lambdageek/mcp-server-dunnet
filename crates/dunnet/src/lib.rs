@@ -47,8 +47,18 @@ struct DunnetReplInner {
 
 impl Dunnet {
     pub fn new() -> Self {
-        let path = "/Applications/Emacs.app/Contents/MacOS/emacs-nw";
-        let args = ["-q", "-batch", "-l", "dunnet"];
+        #[cfg(target_os= "macos")]
+        let (path,args) = {
+            let path = "/Applications/Emacs.app/Contents/MacOS/emacs-nw";
+            let args = ["-q", "-batch", "-l", "dunnet"];
+            (path, args)
+        };
+        #[cfg(target_os= "linux")]
+        let (path, args) = {
+            let path = "emacs";
+            let args = ["-q", "-batch", "-l", "dunnet"];
+            (path, args)
+        };
         let process = Command::new(path)
             .args(&args)
             .stdin(std::process::Stdio::piped())
